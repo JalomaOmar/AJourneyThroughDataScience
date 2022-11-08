@@ -1,0 +1,169 @@
+---
+title: "Project Part 1"
+author: "Jesús Liceaga - Omar Jaloma"
+date: '2022-07-11'
+output: html_document
+---
+
+We start importing the necessary libraries.
+
+```{r message = FALSE, warning = FALSE}
+library(tidyverse)
+library(shiny)
+```
+
+Now, we load our data set and restrict ourselves to the state of Guanajuato for the sake of simplicity.
+
+```{r message = FALSE, warning = FALSE}
+data <- read_csv("conjunto_de_datos_sdem_enoen_2022_1t.csv")
+data_Guanajuato <- filter(data, ent == 11) 
+```
+
+# Some graphs
+
+The first graph we make is a population Pyramid.
+
+```{r, fig.align = "center"}
+ggplot(data_Guanajuato, aes(x = eda, fill = as.logical(sex - 1))) +
+  labs(title = "Population Pyramid\n", x = "Age", y = "Number of people") +
+  geom_bar(data = filter(data_Guanajuato, sex == 1), stat = "count") +
+  geom_bar(data = filter(data_Guanajuato, sex == 2), aes(y=..count..*(-1)), 
+    stat = "count") +
+  scale_y_continuous(breaks=seq(-200,200,20),labels=abs(seq(-200,200,20))) + 
+  scale_fill_discrete(name = "Sex", labels=c('Man', 'Woman')) +
+  coord_flip()
+```
+
+As we can observe, this is a typical pyramid for latin america, as the majority of the people is young. However, it is also true that there are more young adults than children.
+
+Now, we graph the average income against the number of worked hours per week. We only count people that work.
+
+```{r, fig.align = "center"}
+data_G_work <- filter(data_Guanajuato, anios_esc != 0 & anios_esc != 99 & ingocup > 0)
+ggplot(data_G_work, aes(x = hrsocup, y = ingocup)) + 
+  geom_point(stat = "summary", fun = "mean", color = "darkolivegreen") + 
+  xlab("Worked hours per week") + ylab("Average income") + 
+  ggtitle("Average income against schooling years")
+```
+
+Here we observe an interesting thing. One could expect that the more hours someone works, the more income it earns. However, this is not exactly true. As we can see, the income starts to reduce when more less when we pass the 60 hours of work. This could be due that mos of the time, people who work a lot of hours do it because they have a bad-payed job, and people with good-payed ones prefer to do uther things besides working. 
+
+We continue graphing the average income against the number of schooling years. We only count people that has a work.
+
+```{r, fig.align = "center"}
+ggplot(data_G_work, aes(x = anios_esc, y = ingocup)) + 
+  geom_point(stat = "summary", fun = "mean", color = "darkolivegreen") + 
+  xlab("Schooling") + ylab("Average income") + 
+  ggtitle("Average income against schooling years")
+```
+
+As one would hope, the average income appears to increase with the increase of schooling years. 
+
+We do the same thing as in the last graph, but calculating the average income of women and men separately.
+
+```{r, fig.align = "center"}
+ggplot(data_G_work, aes(x = anios_esc, y = ingocup, color = as.logical(sex - 1))) + 
+  geom_point(data = filter(data_G_work, sex == 1), stat = "summary", fun = "mean") + 
+  geom_point(data = filter(data_G_work, sex == 2), stat = "summary", fun = "mean") +
+  xlab("Schooling") + ylab("Average income") + 
+  ggtitle("Average income against schooling years") +
+  scale_color_discrete(name = "Sex", labels=c('Man', 'Woman'))
+```
+
+The last graph also shows that the average income increase with the years of study. However, it also suggests the existance of gender inequality, as almost for any fixed schooling number of years men earn more than women.
+
+Now we graph the number of working people that have a certain income level, using a histogram for this.
+
+```{r, fig.align = "center"}
+ggplot(tibble(x = data_G_work$ingocup), aes(x = x)) + 
+  geom_histogram(bins = 30, fill = "darkolivegreen", colour = "white") + 
+  labs(x = "Income", y = "Number of people")
+```
+
+This graphs shows a high inequality, as there are is a lot of people who earn around 0 to 25,000 pesos per month, but there exists a very small amount of people that earn up to 100,000 pesos (that is why the x-axis looks like that).
+
+Finally, we graph the percentage of women and men with a certain income. 
+
+```{r, fig.align = "center"}
+ggplot(data_G_work, aes(x = ingocup, fill = as.logical(sex - 1), alpha = 0.3)) + 
+    geom_density(data = subset(data_G_work, sex == 1), colour = "white") +
+    geom_density(data = subset(data_G_work, sex == 2), colour = "white") +
+    labs(x = "Income", y = "Percentage") + scale_fill_discrete(name = "Sex", 
+      labels=c('Man', 'Woman'))
+```
+
+This graph shows both the social and gender inequality that exists in Guanajuato. 
+
+# Shiny animation
+
+For the shiny animation, we will graph again the number of people which certain income. However, it will have an scroll bar that will change the schooling years. 
+
+```{r}
+ui <- fluidPage(
+  titlePanel("Number of people with certain income given schooling years"),
+  sidebarLayout(
+    sidebarPanel(
+      sliderInput("school", "Number of schooling years:",
+                  min = 1, max = 20, value = 1, animate = TRUE)),
+    mainPanel(plotOutput("distPlot"))
+  )
+)
+
+server <- function(input, output){
+    output$distPlot <- renderPlot({
+    
+    data_G_work_s <- subset(data_G_work, anios_esc == input$school)
+    
+    ggplot(tibble(x = data_G_work_s$ingocup), aes(x = x)) + 
+      geom_histogram(bins = 30, fill = "darkolivegreen", colour = "white") + 
+      labs(x = "Income", y = "Number of people") + xlim(0, 75000)
+    })
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+# Additional challenge
+
+Lets see the distribution of the birthdays of the people in the survey. To do this, we plot the date vs the frequency of the birthday.
+
+```{r, fig.align='center'}
+bday2day<-function(day, month){
+    dm<-c(31,29,31,30,31,30,31,31,30,31,30,31)
+    j=1
+    s=0
+    for(i in dm){
+      if(j==month){
+       s=s+day
+      return(s)
+      }
+      s=s+i
+      j=j+1
+    }
+}
+
+
+data_Guanajuato<-tibble(data_Guanajuato)
+x<-filter(data_Guanajuato, data_Guanajuato$nac_dia!=99)
+for(i in 1:length(x$nac_dia)){
+  day<-x$nac_dia[i]
+  month<-x$nac_mes[i]
+  if(i==1){
+    y<-c(bday2day(day, month)) 
+  }
+  y<-c(y,bday2day(day, month))
+}
+t<-table(y)
+l<-1:366
+g<-tibble(l,t)
+ggplot(g, aes(x=l,y=t)) +xlab("Day")+ ylab("Frequency")+geom_point(color="blue" )
+t[t==max(t)]
+```
+
+Then, the day with more birthdays is the 347th day, this is december 12th, the Virgen de Guadalupe's day, and it explains the frequency of the name Guadalupe in Mexican Culture.
+
+```{r, fig.align='center'}
+counts<-table(x$nac_dia)
+plot(x=1:31,y=counts, xlab="day", ylab="frecuency")
+```
+From here we can see that the days 5,10 and 15 of each month are overrepresented. 

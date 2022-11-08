@@ -1,0 +1,105 @@
+---
+title: "Project - Part 3"
+author: "Jesús Liceaga - Alfredo Jaloma"
+date: '2022-07-21'
+output: html_document
+---
+
+We start importing the necessary libraries.
+
+```{r message = FALSE, warning = FALSE}
+library(tidyverse)
+library(keras)
+library(tfdatasets)
+library(caret)
+```
+
+Now, we load our data set.
+
+```{r message = FALSE, warning = FALSE}
+data <- read_csv("conjunto_de_datos_sdem_enoen_2022_1t.csv")
+head(data)
+```
+
+# Preparation of the data
+
+First, we restrict ourselves to the state of Guanajuato for the sake of simplicity
+
+```{r message = FALSE, warning = FALSE}
+data_Gto <- filter(data, ent == 11) 
+```
+
+Then, we create a new data set, containing only the monthly income and the parameters we will use to predict it. In this case, these parameters will be sex, if they know how to write a short message, age, years of schooling and hours worked in the week. The first 2 parameters are categorical (but INEGI uses numbers to register them) and the others are numerical.
+
+We also omit people that don't have an income (income per month equal 0) and peope that didn't answer if they know how to write a message.
+
+```{r message = FALSE, warning = FALSE}
+data_Gtof <- select(data_Gto, sex, eda, anios_esc, hrsocup, cs_p12, ingocup) 
+data_Gtof <- filter(data_Gtof, ingocup > 0 & ingocup < 25000 & cs_p12 != 9)
+
+head(data_Gtof)
+```
+
+Now, to handle categorical data, we will use one-hot encoding. For this, we make the range of our numbers start in 0 and then we use the function \texttt{to_categorical()}.
+
+```{r}
+data_Gtof <- mutate(data_Gtof, write = cs_p12 - 1, sex0 = sex - 1)
+dta_Gtof <- select(data_Gtof, -sex, - cs_p12)
+
+data_onehot <- data.frame(to_categorical(data_Gtof$sex0, 2), data_Gtof$eda,
+                         data_Gtof$anios_esc, data_Gtof$hrsocup,
+                         to_categorical(data_Gtof$write, 2), data_Gtof$ingocup)
+
+head(data_onehot)
+```
+
+# The Neural Network 
+
+We now create our Neural Network and make predictions with it.
+
+```{r message = FALSE, warning = FALSE}
+#This for loop is used for cross-validation. In each loop, we use a different
+#set as training data
+for (i in 1:10){
+    #We select around 70% of our data in a random way to be our training data
+    #and the other 30% will be our testing data
+    n <- nrow(data_onehot)
+    ind <- sample(c(TRUE, FALSE), n, replace=TRUE, prob=c(0.7, 0.3))
+    train_df <- data_onehot[ind, ]
+    test_df <- data_onehot[!ind, ]
+    
+    #Here we define our Neural Network
+    model <- keras_model_sequential() 
+    model %>%  
+        layer_dense(input_shape = (7), units = 32, activation = "relu") %>%  
+        layer_dropout(0.1) %>%  
+        layer_dense(units = 10, activation = "relu") %>%  
+        layer_dropout(0.1) %>%  
+        layer_dense(units = 1)
+    
+    #We compile the model
+    model %>% compile(
+        loss = "mse", 
+        optimizer = "adam", 
+        metric="mae")
+    
+    #And then fit the training data to it
+    model %>% fit(
+        x = as.matrix(train_df %>% select(-data_Gtof.ingocup)),
+        y = train_df$data_Gtof.ingocup,
+        epochs = 50, 
+        validation_split = 0.2,
+        bach_size = 2)
+
+    c(loss, mae) %<-% 
+      (model %>% 
+      evaluate(as.matrix(test_df %>% select(-data_Gtof.ingocup)), 
+        test_df$data_Gtof.ingocup, verbose = 0))
+    print(paste("Mean absolute error on our test set: ", mae))
+}
+```
+
+
+# Conclusions 
+
+As we can observe, the mean absolute error is around $2600 pesos. Sadly, this is a considerable error, since the incomes go from 0 to 25,000 pesos. It is important to note that we also tried models with more units per layer. However, their performance was worse, probably to overfitting. On the other side, we also used other parameters in the model, but as we increased the number of them, the model became less accurate. Due to this, we tried to minimize the parameters used and only keep the ones we thought were more representative.
